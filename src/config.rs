@@ -1,10 +1,13 @@
 use std::env;
 
-/// Failover configuration (defaults match curl_fo).
+/// Failover configuration.
 #[derive(Debug, Clone)]
 pub struct Config {
     pub lru_capacity: usize,
+    /// Max ranked IPs stored and used for sequential failover.
     pub top_ips: usize,
+    /// Max parallel TCP connect probes during a cold race (caps large DNS answers).
+    pub race_ips: usize,
     pub get_timeout_ms: u64,
     pub other_timeout_ms: u64,
     pub connect_timeout_ms: u64,
@@ -21,10 +24,11 @@ impl Default for Config {
         Self {
             lru_capacity: 500,
             top_ips: 3,
+            race_ips: 3,
             get_timeout_ms: 15_000,
             other_timeout_ms: 60_000,
             connect_timeout_ms: 3_000,
-            idempotency_header: "X-Curl-FO-Id".into(),
+            idempotency_header: "X-FO-Id".into(),
             latency_bucket_ms: 10,
             default_ttl_sec: 300,
             verbose: false,
@@ -44,6 +48,11 @@ impl Config {
         if let Ok(v) = env::var("HTTP_FO_TOP_IPS").or_else(|_| env::var("CURL_FO_TOP_IPS")) {
             if let Ok(n) = v.parse() {
                 self.top_ips = n;
+            }
+        }
+        if let Ok(v) = env::var("HTTP_FO_RACE_IPS") {
+            if let Ok(n) = v.parse() {
+                self.race_ips = n;
             }
         }
         if let Ok(v) =
@@ -67,8 +76,7 @@ impl Config {
                 self.connect_timeout_ms = n;
             }
         }
-        if let Ok(v) = env::var("HTTP_FO_IDEMPOTENCY_HEADER")
-            .or_else(|_| env::var("CURL_FO_IDEMPOTENCY_HEADER"))
+        if let Ok(v) = env::var("HTTP_FO_ID_HEADER").or_else(|_| env::var("HTTP_FO_IDEMPOTENCY_HEADER"))
         {
             if !v.is_empty() {
                 self.idempotency_header = v;
@@ -116,6 +124,7 @@ impl Config {
         }
         if top_ips > 0 {
             cfg.top_ips = top_ips;
+            cfg.race_ips = top_ips;
         }
         if connect_timeout_ms > 0 {
             cfg.connect_timeout_ms = connect_timeout_ms;
@@ -135,11 +144,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_match_curl_fo() {
+    fn defaults() {
         let cfg = Config::default();
         assert_eq!(cfg.lru_capacity, 500);
         assert_eq!(cfg.top_ips, 3);
+        assert_eq!(cfg.race_ips, 3);
         assert_eq!(cfg.connect_timeout_ms, 3_000);
-        assert_eq!(cfg.idempotency_header, "X-Curl-FO-Id");
+        assert_eq!(cfg.idempotency_header, "X-FO-Id");
     }
 }

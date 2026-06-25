@@ -42,7 +42,7 @@ impl HttpClient {
 
     pub async fn execute(&self, spec: RequestSpec) -> Result<HttpResponse, Error> {
         let endpoint = parse_endpoint(&spec.url)?;
-        let ranked = self
+        let resolved = self
             .ctx
             .resolve_ranked(&endpoint.host, endpoint.port)
             .await?;
@@ -53,12 +53,17 @@ impl HttpClient {
             self.ctx.other_timeout()
         };
 
+        if !resolved.failover_enabled {
+            return self
+                .execute_direct(&spec, timeout, self.ctx.connect_timeout())
+                .await;
+        }
+
         let idempotency = Uuid::new_v4().to_string();
         let idem_header = self.ctx.config().idempotency_header.clone();
-
         let mut last_transport_err: Option<reqwest::Error> = None;
 
-        for ip in ranked {
+        for ip in resolved.ranked_ips {
             let client = build_client_for_ip(
                 &endpoint.host,
                 endpoint.port,
@@ -131,6 +136,44 @@ impl HttpClient {
             host: endpoint.host,
             port: endpoint.port,
         })
+    }
+
+    async fn execute_direct(
+        &self,
+        spec: &RequestSpec,
+        timeout: Duration,
+        connect_timeout: Duration,
+    ) -> Result<HttpResponse, Error> {
+        let client = Client::builder()
+            .timeout(timeout)
+            .connect_timeout(connect_timeout)
+            .build()
+            .map_err(Error::Http)?;
+
+        let mut req = client.request(spec.method.clone(), &spec.url);
+        for (k, v) in &spec.headers {
+            if let (Ok(name), Ok(value)) = (
+                HeaderName::from_bytes(k.as_bytes()),
+                HeaderValue::from_str(v),
+            ) {
+                req = req.header(name, value);
+            }
+        }
+        if let Some(body) = &spec.json_body {
+            req = req
+                .header(CONTENT_TYPE, "application/json")
+                .header(ACCEPT, "application/json")
+                .json(body);
+        }
+
+        match req.send().await {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                let body = resp.text().await.unwrap_or_default();
+                Ok(HttpResponse { status, body })
+            }
+            Err(e) => Err(Error::Http(e)),
+        }
     }
 }
 

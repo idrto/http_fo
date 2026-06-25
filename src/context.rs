@@ -1,11 +1,10 @@
-use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::cache::DnsCache;
 use crate::config::Config;
 use crate::error::Error;
-use crate::resolve::resolve_ranked;
+use crate::resolve::{resolve_ranked, ResolveResult};
 
 /// Shared DNS cache and failover configuration.
 pub struct Context {
@@ -40,7 +39,7 @@ impl Context {
         self.cache.clear();
     }
 
-    pub async fn resolve_ranked(&self, host: &str, port: u16) -> Result<Vec<IpAddr>, Error> {
+    pub async fn resolve_ranked(&self, host: &str, port: u16) -> Result<ResolveResult, Error> {
         resolve_ranked(&self.cache, &self.config, host, port).await
     }
 

@@ -4,16 +4,11 @@ use std::time::{Duration, Instant};
 use lru::LruCache;
 use parking_lot::Mutex;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct HostPort {
-    pub host: String,
-    pub port: u16,
-}
-
 #[derive(Debug, Clone)]
 pub struct CacheEntry {
     pub all_ips: Vec<IpAddr>,
     pub ranked_ips: Vec<IpAddr>,
+    pub failover_enabled: bool,
     pub expires_at: Instant,
     pub ws_index: usize,
     pub ws_retried_same: bool,
@@ -56,6 +51,7 @@ impl DnsCache {
         port: u16,
         all_ips: Vec<IpAddr>,
         ranked_ips: Vec<IpAddr>,
+        failover_enabled: bool,
         ttl: Duration,
     ) {
         let mut guard = self.inner.lock();
@@ -67,6 +63,7 @@ impl DnsCache {
             CacheEntry {
                 all_ips,
                 ranked_ips,
+                failover_enabled,
                 expires_at: Instant::now() + ttl,
                 ws_index,
                 ws_retried_same,

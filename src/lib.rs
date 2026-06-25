@@ -20,5 +20,6 @@ pub use context::Context;
 pub use endpoint::parse_endpoint;
 pub use error::Error;
 pub use http::{HttpClient, HttpResponse, RequestSpec};
+pub use resolve::ResolveResult;
 pub use policy::{should_failover_gateway, should_failover_transport};
 pub use ws::{connect_wss, prepare_ws_reconnect, WsReconnectMode, WsReconnectState};

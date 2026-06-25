@@ -47,7 +47,7 @@ pub fn prepare_ws_reconnect(state: &mut WsReconnectState, ranked_len: usize) {
     }
 }
 
-/// Connect a WebSocket with IP failover.
+/// Connect a WebSocket with IP failover (bypassed when DNS returns a single address).
 pub async fn connect_wss(
     ctx: &Context,
     url: &str,
@@ -56,7 +56,23 @@ pub async fn connect_wss(
     state: &mut WsReconnectState,
 ) -> Result<(WsStream, IpAddr), Error> {
     let endpoint = parse_endpoint(url)?;
-    let ranked = ctx.resolve_ranked(&endpoint.host, endpoint.port).await?;
+    let resolved = ctx.resolve_ranked(&endpoint.host, endpoint.port).await?;
+
+    if !resolved.failover_enabled {
+        let ip = resolved
+            .ranked_ips
+            .first()
+            .copied()
+            .ok_or_else(|| Error::NoAddresses {
+                host: endpoint.host.clone(),
+                port: endpoint.port,
+            })?;
+        let stream = connect_wss_direct(url, extra_headers).await?;
+        state.reset();
+        return Ok((stream, ip));
+    }
+
+    let ranked = resolved.ranked_ips;
     let ips_to_try = ips_for_mode(&ranked, mode, state);
 
     if ips_to_try.is_empty() {
@@ -187,9 +203,15 @@ async fn connect_wss_to_ip(
     Ok(stream)
 }
 
-/// Plain connect without IP failover (tests / fallback).
-pub async fn connect_wss_direct(url: &str) -> Result<WsStream, Error> {
-    connect_async(url)
+/// Plain hostname connect (single-IP bypass / tests).
+pub async fn connect_wss_direct(url: &str, extra_headers: HeaderMap) -> Result<WsStream, Error> {
+    let mut request = url
+        .into_client_request()
+        .map_err(|e| Error::WebSocket(e.to_string()))?;
+    for (k, v) in extra_headers.iter() {
+        request.headers_mut().insert(k.clone(), v.clone());
+    }
+    connect_async(request)
         .await
         .map(|(s, _)| s)
         .map_err(|e| Error::WebSocket(e.to_string()))
